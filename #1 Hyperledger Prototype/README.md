@@ -39,4 +39,4 @@ Referred to - [@Github](https://github.com/wowlsh93/hyperledger-fabric-400)
 ## License
 
 Copyright (c) GeonWoo Kim. All rights reserved.
-Licensed under the [MIT](LICENSE.txt) License.
+Licensed under the [MIT](LICENSE) License.
