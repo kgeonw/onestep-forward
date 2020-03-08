@@ -11,16 +11,18 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 // TRANACTION
-type Tranaction struct {
+type Transaction struct {
 	client_msp string
 	key        string
 	value      string
 }
 
-type _Tranaction struct {
+type _Transaction struct {
 	key   string
 	value string
 }
@@ -58,13 +60,13 @@ func (db *LevelDB) setValue(key string, value string) {
 // BLOCK
 type Block struct {
 	endorsers []string
-	Trans     []_Tranaction
+	Trans     []_Transaction
 }
 
 type _Block struct {
 	Index     int
 	Timestamp string
-	Trans     []_Tranaction
+	Trans     []_Transaction
 	Hash      string
 	PrevHash  string
 }
@@ -83,7 +85,7 @@ func (l *Ledger) createGenesisBlock() {
 	t := time.Now()
 	genesisBlock := _Block{}
 	genesisBlock = _Block{0, t.String(), nil, calculateHash(genesisBlock), ""}
-	//spew.Dump(genesisBlock)
+	spew.Dump(genesisBlock)
 
 	ledger_mutex.Lock()
 	l.Blockchain = append(l.Blockchain, genesisBlock)
@@ -95,7 +97,7 @@ func (l *Ledger) addBlock(block Block) {
 	prevBlock := l.Blockchain[len(l.Blockchain)-1]
 	newBlock := l.generateBlock(prevBlock, block)
 	l.Blockchain = append(l.Blockchain, newBlock)
-	//spew.Dump(newBlock)
+	spew.Dump(newBlock)
 	fmt.Println("Ledger - Add new Block", block)
 	ledger_mutex.Unlock()
 }
@@ -106,18 +108,19 @@ func (o *Ledger) generateBlock(oldBlock _Block, block Block) _Block {
 	t := time.Now()
 	newBlock.Index = oldBlock.Index + 1
 	newBlock.Timestamp = t.String()
+	newBlock.Trans = block.Trans
 	newBlock.PrevHash = oldBlock.Hash
 	newBlock.Hash = calculateHash(newBlock)
 	fmt.Println("Ledger - Generate Block", block)
 	return newBlock
 }
 
-func (l *Ledger) setState(trans _Tranaction) {
+func (l *Ledger) setState(trans _Transaction) {
 	fmt.Println("Ledger - SetState Transaction", trans)
 	l.setValue(trans.key, trans.value)
 }
 
-func (l *Ledger) getState(trans Tranaction) string {
+func (l *Ledger) getState(trans Transaction) string {
 	fmt.Println("Ledger - GetState Transaction", trans)
 	return l.getValue(trans.key)
 }
@@ -127,7 +130,7 @@ type Peer struct {
 	peer_type  int // 0 commit only peer, 1 endorse + commit peer
 	ledger     *Ledger
 	msp        MSP
-	addtrans   chan Tranaction
+	addtrans   chan Transaction
 	addblock   chan Block
 	endsorseok chan RWSet
 	peer_done  chan bool
@@ -136,7 +139,7 @@ type Peer struct {
 }
 
 func (p *Peer) Start() {
-	p.addtrans = make(chan Tranaction)
+	p.addtrans = make(chan Transaction)
 	p.addblock = make(chan Block)
 	p.endsorseok = make(chan RWSet)
 	p.peer_done = make(chan bool)
@@ -147,7 +150,7 @@ func (p *Peer) Start() {
 	go p.committing()
 }
 
-func (p *Peer) addTrans(trans Tranaction) RWSet {
+func (p *Peer) addTrans(trans Transaction) RWSet {
 	p.addtrans <- trans
 	fmt.Println("Peer - Receive transaction from Client", trans)
 	return <-p.endsorseok
@@ -262,7 +265,7 @@ func (o *Orderer) consumer() {
 func (o *Orderer) createBlock(rwsets []RWSet) Block {
 	var newBlock Block
 	for _, rwset := range rwsets {
-		_trans := _Tranaction{key: rwset.key, value: rwset.value}
+		_trans := _Transaction{key: rwset.key, value: rwset.value}
 		newBlock.Trans = append(newBlock.Trans, _trans)
 		newBlock.endorsers = append(newBlock.endorsers, rwset.peers_msp[0])
 		newBlock.endorsers = append(newBlock.endorsers, rwset.peers_msp[1])
@@ -385,10 +388,14 @@ func (fab *Fabric) Start() {
 	committerList := []*Peer{fab.committer} // generally endorsing peer also have committing peer role but excluded to simplify.
 	fab.orderer1 = &Orderer{msp: MSP{id: fab.MSP_orderer1}, kafka: fab.kafka, committer: committerList, fabric: fab}
 	fab.orderer1.Start()
+
+	ledger1.createGenesisBlock()
+	ledger2.createGenesisBlock()
+	ledger3.createGenesisBlock()
 }
 
 func (fab *Fabric) WriteTransaction(key string, value string, auth string) (RWSet, RWSet) {
-	t := Tranaction{client_msp: auth, key: key, value: value}
+	t := Transaction{client_msp: auth, key: key, value: value}
 	rwset1 := fab.endorser1.addTrans(t)
 	rwset2 := fab.endorser2.addTrans(t)
 
